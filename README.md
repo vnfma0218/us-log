@@ -1,36 +1,45 @@
-This is a [Next.js](https://nextjs.org) project bootstrapped with [`create-next-app`](https://nextjs.org/docs/app/api-reference/cli/create-next-app).
+# US LOG (Supabase + Next.js MVP)
 
-## Getting Started
+여자친구와 함께 사진을 저장하고, 자동 타임라인 + 지도에서 추억을 보는 앱 MVP입니다.
 
-First, run the development server:
+## 1) 환경변수
+
+프로젝트 루트에 `.env.local` 파일 생성:
 
 ```bash
-npm run dev
-# or
-yarn dev
-# or
-pnpm dev
-# or
+NEXT_PUBLIC_SUPABASE_URL=...
+SUPABASE_SERVICE_ROLE_KEY=...
+NEXT_PUBLIC_DEMO_COUPLE_ID=...
+```
+
+- `NEXT_PUBLIC_DEMO_COUPLE_ID`는 `couples.id` UUID입니다.
+- 현재 MVP는 서버 API에서 `SERVICE_ROLE_KEY`로 저장/조회합니다. (빠른 시연 목적)
+
+## 2) Supabase SQL 실행
+
+Supabase SQL Editor에서 아래 파일 실행:
+
+- `supabase/schema.sql`
+
+실행 후 샘플 데이터:
+
+```sql
+insert into public.couples (name) values ('우리 둘') returning id;
+```
+
+반환된 `id`를 `.env.local`의 `NEXT_PUBLIC_DEMO_COUPLE_ID`에 넣으면 됩니다.
+
+## 3) 실행
+
+```bash
 bun dev
 ```
 
-Open [http://localhost:3000](http://localhost:3000) with your browser to see the result.
+`http://localhost:3000`
 
-You can start editing the page by modifying `app/page.tsx`. The page auto-updates as you edit the file.
+## 핵심 동작
 
-This project uses [`next/font`](https://nextjs.org/docs/app/building-your-application/optimizing/fonts) to automatically optimize and load [Geist](https://vercel.com/font), a new font family for Vercel.
-
-## Learn More
-
-To learn more about Next.js, take a look at the following resources:
-
-- [Next.js Documentation](https://nextjs.org/docs) - learn about Next.js features and API.
-- [Learn Next.js](https://nextjs.org/learn) - an interactive Next.js tutorial.
-
-You can check out [the Next.js GitHub repository](https://github.com/vercel/next.js) - your feedback and contributions are welcome!
-
-## Deploy on Vercel
-
-The easiest way to deploy your Next.js app is to use the [Vercel Platform](https://vercel.com/new?utm_medium=default-template&filter=next.js&utm_source=create-next-app&utm_campaign=create-next-app-readme) from the creators of Next.js.
-
-Check out our [Next.js deployment documentation](https://nextjs.org/docs/app/building-your-application/deploying) for more details.
+1. 사진 선택 시 EXIF(GPS/촬영시간)를 자동 파싱
+2. 업로드 시 Storage(`photos` 버킷)에 파일 저장
+3. 같은 날짜 기준으로 `memories` 타임라인 자동 생성(upsert)
+4. `latitude/longitude`가 있으면 지도(Leaflet)에 핀 표시
