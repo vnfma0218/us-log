@@ -1,72 +1,58 @@
 import { randomUUID } from "node:crypto"
 import { NextResponse } from "next/server"
 
-import {
-  buildAutoSummary,
-  buildMemoryTitle,
-  toDateKey,
-  toIsoDate,
-} from "@/lib/memory-utils"
-import { getSupabaseAdmin } from "@/lib/supabase-admin"
+import { getCurrentUserAndCoupleId } from "@/lib/current-user-couple"
+import { buildMemoryTitle, toDateKey, toIsoDate } from "@/lib/memory-utils"
+import { createClient } from "@/utils/supabase/server"
 
 const PHOTO_BUCKET = "photos"
 
-function toNumberOrNull(value: FormDataEntryValue | null) {
-  if (!value) return null
-  const parsed = Number(value)
-  return Number.isFinite(parsed) ? parsed : null
-}
-
 export async function POST(request: Request) {
   const formData = await request.formData()
-  const file = formData.get("file")
-  const coupleId = formData.get("coupleId")?.toString()
-  const caption = formData.get("caption")?.toString() ?? null
+  const files = formData.getAll("files").filter((entry): entry is File => entry instanceof File)
+  const title = formData.get("title")?.toString().trim() ?? ""
+  const summary = formData.get("summary")?.toString().trim() ?? ""
   const takenAt = formData.get("takenAt")?.toString() ?? null
-  const locationName = formData.get("locationName")?.toString() ?? null
-  const latitude = toNumberOrNull(formData.get("latitude"))
-  const longitude = toNumberOrNull(formData.get("longitude"))
 
-  if (!coupleId) {
-    return NextResponse.json({ error: "coupleId is required." }, { status: 400 })
+  let coupleId = ""
+  try {
+    const authContext = await getCurrentUserAndCoupleId()
+    coupleId = authContext.coupleId
+  } catch (err) {
+    const message = err instanceof Error ? err.message : "UNKNOWN"
+    if (message === "UNAUTHORIZED") {
+      return NextResponse.json({ error: "로그인이 필요합니다." }, { status: 401 })
+    }
+    if (message === "COUPLE_NOT_FOUND") {
+      return NextResponse.json(
+        { error: "현재 로그인한 유저가 속한 커플이 없습니다." },
+        { status: 403 }
+      )
+    }
+    return NextResponse.json({ error: message }, { status: 500 })
   }
-  if (!(file instanceof File)) {
-    return NextResponse.json({ error: "file is required." }, { status: 400 })
+  if (!title) {
+    return NextResponse.json({ error: "title is required." }, { status: 400 })
+  }
+  if (!summary) {
+    return NextResponse.json({ error: "summary is required." }, { status: 400 })
+  }
+  if (files.length === 0) {
+    return NextResponse.json({ error: "at least one file is required." }, { status: 400 })
   }
 
-  const fileExt = file.name.includes(".") ? file.name.split(".").pop() : "jpg"
-  const safeExt = fileExt?.replace(/[^a-zA-Z0-9]/g, "") || "jpg"
-  const storagePath = `${coupleId}/${randomUUID()}.${safeExt}`
   const eventDate = toIsoDate(takenAt)
   const memoryDateKey = toDateKey(eventDate)
-  const summary = buildAutoSummary({ date: eventDate, locationName, caption })
-  const title = buildMemoryTitle(eventDate)
-  const supabaseAdmin = getSupabaseAdmin()
+  const supabase = await createClient()
 
-  const fileBuffer = await file.arrayBuffer()
-  const { error: uploadError } = await supabaseAdmin.storage
-    .from(PHOTO_BUCKET)
-    .upload(storagePath, fileBuffer, {
-      contentType: file.type || "image/jpeg",
-      upsert: false,
-      cacheControl: "3600",
-    })
-
-  if (uploadError) {
-    return NextResponse.json({ error: uploadError.message }, { status: 500 })
-  }
-
-  const { data: memory, error: memoryError } = await supabaseAdmin
+  const { data: memory, error: memoryError } = await supabase
     .from("memories")
     .upsert(
       {
         couple_id: coupleId,
         memory_date: memoryDateKey,
-        title,
+        title: title || buildMemoryTitle(eventDate),
         summary,
-        location_name: locationName,
-        latitude,
-        longitude,
       },
       { onConflict: "couple_id,memory_date" }
     )
@@ -80,20 +66,40 @@ export async function POST(request: Request) {
     )
   }
 
-  const { error: photoError } = await supabaseAdmin.from("photos").insert({
-    couple_id: coupleId,
-    memory_id: memory.id,
-    storage_path: storagePath,
-    caption,
-    taken_at: eventDate.toISOString(),
-    location_name: locationName,
-    latitude,
-    longitude,
-  })
+  const uploadedPhotos = []
+
+  for (const file of files) {
+    const fileExt = file.name.includes(".") ? file.name.split(".").pop() : "jpg"
+    const safeExt = fileExt?.replace(/[^a-zA-Z0-9]/g, "") || "jpg"
+    const storagePath = `${coupleId}/${randomUUID()}.${safeExt}`
+    const fileBuffer = await file.arrayBuffer()
+
+    const { error: uploadError } = await supabase.storage
+      .from(PHOTO_BUCKET)
+      .upload(storagePath, fileBuffer, {
+        contentType: file.type || "image/jpeg",
+        upsert: false,
+        cacheControl: "3600",
+      })
+
+    if (uploadError) {
+      return NextResponse.json({ error: uploadError.message }, { status: 500 })
+    }
+
+    uploadedPhotos.push({
+      couple_id: coupleId,
+      memory_id: memory.id,
+      storage_path: storagePath,
+      caption: file.name,
+      taken_at: eventDate.toISOString(),
+    })
+  }
+
+  const { error: photoError } = await supabase.from("photos").insert(uploadedPhotos)
 
   if (photoError) {
     return NextResponse.json({ error: photoError.message }, { status: 500 })
   }
 
-  return NextResponse.json({ ok: true })
+  return NextResponse.json({ ok: true, uploadedCount: uploadedPhotos.length })
 }

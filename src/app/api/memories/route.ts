@@ -1,15 +1,30 @@
-import { NextRequest, NextResponse } from "next/server"
+import { NextResponse } from "next/server"
 
-import { getSupabaseAdmin } from "@/lib/supabase-admin"
+import { getCurrentUserAndCoupleId } from "@/lib/current-user-couple"
+import { createClient } from "@/utils/supabase/server"
 
-export async function GET(request: NextRequest) {
-  const coupleId = request.nextUrl.searchParams.get("coupleId")
-  if (!coupleId) {
-    return NextResponse.json({ error: "coupleId is required." }, { status: 400 })
+export async function GET() {
+  let coupleId = ""
+
+  try {
+    const authContext = await getCurrentUserAndCoupleId()
+    coupleId = authContext.coupleId
+  } catch (err) {
+    const message = err instanceof Error ? err.message : "UNKNOWN"
+    if (message === "UNAUTHORIZED") {
+      return NextResponse.json({ error: "로그인이 필요합니다." }, { status: 401 })
+    }
+    if (message === "COUPLE_NOT_FOUND") {
+      return NextResponse.json(
+        { error: "현재 로그인한 유저가 속한 커플이 없습니다." },
+        { status: 403 }
+      )
+    }
+    return NextResponse.json({ error: message }, { status: 500 })
   }
 
-  const supabaseAdmin = getSupabaseAdmin()
-  const { data, error } = await supabaseAdmin
+  const supabase = await createClient()
+  const { data, error } = await supabase
     .from("memories")
     .select(
       `

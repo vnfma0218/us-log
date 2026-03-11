@@ -29,3 +29,19 @@ export type MarkerItem = {
   longitude: number
   photoUrl: string | null
 }
+
+export type VideoJobItem = {
+  id: string
+  memory_id: string | null
+  status: "queued" | "processing" | "done" | "failed"
+  style: string
+  duration_sec: number
+  bgm: string | null
+  progress: number
+  error_message: string | null
+  result_path: string | null
+  thumbnail_path: string | null
+  created_at: string
+  started_at: string | null
+  finished_at: string | null
+}

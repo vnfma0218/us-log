@@ -1,19 +1,21 @@
-# US LOG (Supabase + Next.js MVP)
+# US LOG (Supabase + Next.js)
 
-여자친구와 함께 사진을 저장하고, 자동 타임라인 + 지도에서 추억을 보는 앱 MVP입니다.
+Supabase 공식 Next.js Quickstart 구조(`@supabase/ssr`) 기준으로 인증/세션 구성을 맞춘 사진 추억 앱입니다.
 
 ## 1) 환경변수
 
-프로젝트 루트에 `.env.local` 파일 생성:
+프로젝트 루트 `.env.local`:
 
 ```bash
 NEXT_PUBLIC_SUPABASE_URL=...
+NEXT_PUBLIC_SUPABASE_PUBLISHABLE_KEY=...
+# 호환용: PUBLISHABLE_KEY 대신 아래를 써도 동작
+# NEXT_PUBLIC_SUPABASE_ANON_KEY=...
 SUPABASE_SERVICE_ROLE_KEY=...
-NEXT_PUBLIC_DEMO_COUPLE_ID=...
 ```
 
-- `NEXT_PUBLIC_DEMO_COUPLE_ID`는 `couples.id` UUID입니다.
-- 현재 MVP는 서버 API에서 `SERVICE_ROLE_KEY`로 저장/조회합니다. (빠른 시연 목적)
+- Quickstart 기준은 `NEXT_PUBLIC_SUPABASE_URL` + `NEXT_PUBLIC_SUPABASE_PUBLISHABLE_KEY` 입니다.
+- `SUPABASE_SERVICE_ROLE_KEY`는 영상 워커(`worker:videos`) 실행에 필요합니다.
 
 ## 2) Supabase SQL 실행
 
@@ -21,13 +23,15 @@ Supabase SQL Editor에서 아래 파일 실행:
 
 - `supabase/schema.sql`
 
-실행 후 샘플 데이터:
+그 다음, 로그인한 유저를 커플에 연결:
 
 ```sql
 insert into public.couples (name) values ('우리 둘') returning id;
-```
 
-반환된 `id`를 `.env.local`의 `NEXT_PUBLIC_DEMO_COUPLE_ID`에 넣으면 됩니다.
+insert into public.couple_members (couple_id, user_id, role)
+values ('위에서_생성한_couple_id', 'auth.users.id', 'owner')
+on conflict (couple_id, user_id) do nothing;
+```
 
 ## 3) 실행
 
@@ -35,11 +39,34 @@ insert into public.couples (name) values ('우리 둘') returning id;
 bun dev
 ```
 
-`http://localhost:3000`
+브라우저에서 `http://localhost:3000` 접속 후 로그인하면,
+서버가 로그인 유저 기준으로 `couple_members`를 조회해 추억을 저장/조회합니다.
 
-## 핵심 동작
+## 4) 영상 워커 실행 (MVP 1단계)
 
-1. 사진 선택 시 EXIF(GPS/촬영시간)를 자동 파싱
-2. 업로드 시 Storage(`photos` 버킷)에 파일 저장
-3. 같은 날짜 기준으로 `memories` 타임라인 자동 생성(upsert)
-4. `latitude/longitude`가 있으면 지도(Leaflet)에 핀 표시
+영상 작업은 API에서 `video_jobs`를 `queued`로 넣고, 워커가 실제 mp4를 생성합니다.
+
+```bash
+# 한 번만 처리
+bun run worker:videos:once
+
+# 지속적으로 큐 감시 (기본 10초 간격)
+bun run worker:videos
+```
+
+옵션:
+
+```bash
+bun run src/worker/video-worker.ts --interval 5
+```
+
+주의:
+- 로컬/서버에 `ffmpeg` 설치가 필요합니다.
+- 워커는 `SUPABASE_SERVICE_ROLE_KEY`를 사용해 `video_jobs/videos/storage`를 업데이트합니다.
+
+## 인증 구조 (Quickstart 방식)
+
+- `src/utils/supabase/client.ts`: 브라우저용 클라이언트
+- `src/utils/supabase/server.ts`: 서버 컴포넌트/라우트용 클라이언트
+- `src/utils/supabase/middleware.ts`: 세션 갱신
+- `middleware.ts`: 모든 요청에서 세션 업데이트

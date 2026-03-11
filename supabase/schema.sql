@@ -175,3 +175,178 @@ using (
       and cm.user_id = auth.uid()
   )
 );
+
+create table if not exists public.video_jobs (
+  id uuid primary key default gen_random_uuid(),
+  couple_id uuid not null references public.couples(id) on delete cascade,
+  requested_by uuid not null references auth.users(id) on delete cascade,
+  memory_id uuid references public.memories(id) on delete set null,
+  status text not null default 'queued' check (status in ('queued', 'processing', 'done', 'failed')),
+  style text not null default 'slideshow',
+  duration_sec integer not null default 30 check (duration_sec between 5 and 120),
+  bgm text,
+  progress integer not null default 0 check (progress between 0 and 100),
+  error_message text,
+  result_path text,
+  thumbnail_path text,
+  started_at timestamptz,
+  finished_at timestamptz,
+  created_at timestamptz not null default now()
+);
+
+create table if not exists public.videos (
+  id uuid primary key default gen_random_uuid(),
+  couple_id uuid not null references public.couples(id) on delete cascade,
+  job_id uuid not null unique references public.video_jobs(id) on delete cascade,
+  title text not null,
+  storage_path text not null unique,
+  thumbnail_path text,
+  duration_sec integer not null check (duration_sec > 0),
+  created_by uuid not null references auth.users(id) on delete cascade,
+  created_at timestamptz not null default now()
+);
+
+create index if not exists video_jobs_couple_created_idx
+  on public.video_jobs (couple_id, created_at desc);
+create index if not exists video_jobs_status_created_idx
+  on public.video_jobs (status, created_at asc);
+create index if not exists videos_couple_created_idx
+  on public.videos (couple_id, created_at desc);
+
+alter table public.video_jobs enable row level security;
+alter table public.videos enable row level security;
+
+drop policy if exists "members can manage video_jobs" on public.video_jobs;
+create policy "members can manage video_jobs"
+on public.video_jobs for all
+using (
+  exists (
+    select 1 from public.couple_members cm
+    where cm.couple_id = video_jobs.couple_id
+      and cm.user_id = auth.uid()
+  )
+)
+with check (
+  exists (
+    select 1 from public.couple_members cm
+    where cm.couple_id = video_jobs.couple_id
+      and cm.user_id = auth.uid()
+  )
+);
+
+drop policy if exists "members can read videos" on public.videos;
+create policy "members can read videos"
+on public.videos for select
+using (
+  exists (
+    select 1 from public.couple_members cm
+    where cm.couple_id = videos.couple_id
+      and cm.user_id = auth.uid()
+  )
+);
+
+drop policy if exists "members can insert videos" on public.videos;
+create policy "members can insert videos"
+on public.videos for insert
+with check (
+  exists (
+    select 1 from public.couple_members cm
+    where cm.couple_id = videos.couple_id
+      and cm.user_id = auth.uid()
+  )
+);
+
+drop policy if exists "members can update videos" on public.videos;
+create policy "members can update videos"
+on public.videos for update
+using (
+  exists (
+    select 1 from public.couple_members cm
+    where cm.couple_id = videos.couple_id
+      and cm.user_id = auth.uid()
+  )
+)
+with check (
+  exists (
+    select 1 from public.couple_members cm
+    where cm.couple_id = videos.couple_id
+      and cm.user_id = auth.uid()
+  )
+);
+
+drop policy if exists "members can delete videos" on public.videos;
+create policy "members can delete videos"
+on public.videos for delete
+using (
+  exists (
+    select 1 from public.couple_members cm
+    where cm.couple_id = videos.couple_id
+      and cm.user_id = auth.uid()
+  )
+);
+
+insert into storage.buckets (id, name, public, file_size_limit, allowed_mime_types)
+values (
+  'videos',
+  'videos',
+  true,
+  524288000,
+  array['video/mp4', 'image/jpeg', 'image/png']
+)
+on conflict (id) do nothing;
+
+drop policy if exists "members can read video objects" on storage.objects;
+create policy "members can read video objects"
+on storage.objects for select
+using (
+  bucket_id = 'videos'
+  and exists (
+    select 1 from public.couple_members cm
+    where cm.couple_id::text = split_part(name, '/', 1)
+      and cm.user_id = auth.uid()
+  )
+);
+
+drop policy if exists "members can upload video objects" on storage.objects;
+create policy "members can upload video objects"
+on storage.objects for insert
+with check (
+  bucket_id = 'videos'
+  and exists (
+    select 1 from public.couple_members cm
+    where cm.couple_id::text = split_part(name, '/', 1)
+      and cm.user_id = auth.uid()
+  )
+);
+
+drop policy if exists "members can update video objects" on storage.objects;
+create policy "members can update video objects"
+on storage.objects for update
+using (
+  bucket_id = 'videos'
+  and exists (
+    select 1 from public.couple_members cm
+    where cm.couple_id::text = split_part(name, '/', 1)
+      and cm.user_id = auth.uid()
+  )
+)
+with check (
+  bucket_id = 'videos'
+  and exists (
+    select 1 from public.couple_members cm
+    where cm.couple_id::text = split_part(name, '/', 1)
+      and cm.user_id = auth.uid()
+  )
+);
+
+drop policy if exists "members can delete video objects" on storage.objects;
+create policy "members can delete video objects"
+on storage.objects for delete
+using (
+  bucket_id = 'videos'
+  and exists (
+    select 1 from public.couple_members cm
+    where cm.couple_id::text = split_part(name, '/', 1)
+      and cm.user_id = auth.uid()
+  )
+);

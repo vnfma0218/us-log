@@ -1,13 +1,13 @@
 import { AppShell } from "@/components/app-shell"
-import { PhotosPage } from "@/components/photos-page"
+import { VideosPage } from "@/components/videos-page"
 import { requireAuth } from "@/lib/require-auth"
 
-export default async function Page() {
+export default async function VideosRoutePage() {
   await requireAuth()
 
   return (
     <AppShell>
-      <PhotosPage />
+      <VideosPage />
     </AppShell>
   )
 }
